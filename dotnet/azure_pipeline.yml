@@ -1,0 +1,202 @@
+# Exemplo de pipeline baseado na Aplicação Modelo(APM) .NET
+trigger:
+  enabled: false
+pool:
+  name: RHEL Docker
+variables:
+- group: APM.ArqNET4.API-K8s
+- group: ComumSetor
+- group: Kubernetes_templates
+resources:
+  repositories:
+  - repository: self
+    type: git
+    name: DIF.SDO/APM.ArqNET4
+
+stages:
+- stage: build
+  displayName: build
+  jobs:
+  - job: ''
+    pool:
+      name: RHEL Docker
+    steps:
+    - task: 6d15af64-176c-496d-b583-fd2ae21d4df4@1
+      displayName: clone
+      inputs:
+        repository: self
+        clean: true
+    - task: CopyFiles@2
+      displayName: Copia fontes para build da imagem
+      inputs:
+        SourceFolder: Fontes/
+        TargetFolder: $(Build.ArtifactStagingDirectory)
+    - task: DotNetCoreCLI@2
+      displayName: dotnet restore
+      enabled: false
+      inputs:
+        command: restore
+        projects: $(Build.ArtifactStagingDirectory)/Empresa.Apm.Api/Empresa.Apm.Api.csproj
+        restoreArguments: --packages $(Build.ArtifactStagingDirectory)/packages
+        vstsFeed: Empresa
+    - task: CopyFiles@2
+      displayName: Copia arquivos config da API
+      inputs:
+        SourceFolder: Fontes/Empresa.Apm.Api
+        Contents: appsettings*
+        TargetFolder: $(Build.ArtifactStagingDirectory)/ConfigApi
+    - task: PublishBuildArtifacts@1
+      displayName: Publica arquivos config da API
+      inputs:
+        PathtoPublish: $(Build.ArtifactStagingDirectory)/ConfigApi
+        ArtifactName: ConfigApi
+    - task: DeleteFiles@1
+      displayName: Exclui arquivos de configuração da imagem
+      inputs:
+        SourceFolder: $(Build.ArtifactStagingDirectory)
+        Contents: >
+          appsettings.json
+
+          appsettings.desenvolvimento.json
+
+          appsettings.k8sdes.json
+
+          appsettings.localhost.json
+
+          appsettings.producao.json
+
+          appsettings.release.json
+    - task: CopyFiles@2
+      displayName: Copia DockerFile
+      inputs:
+        SourceFolder: $(Build.ArtifactStagingDirectory)/Empresa.Apm.Api
+        Contents: Dockerfile
+        TargetFolder: $(Build.ArtifactStagingDirectory)
+    - task: Docker@1
+      displayName: Build an image
+      inputs:
+        containerregistrytype: Container Registry
+        dockerRegistryEndpoint: Harbor
+        command: Build an image
+        dockerFile: $(Build.ArtifactStagingDirectory)/Dockerfile
+        arguments: --build-arg NugetAzureArtifactsUrl=$(NugetAzureArtifactsUrl) --build-arg NugetAzureArtifactsPatToken=$(NugetAzureArtifactsPatToken)
+        imageName: $(Image_name)
+    - task: Docker@1
+      displayName: Push an image
+      inputs:
+        containerregistrytype: Container Registry
+        dockerRegistryEndpoint: Harbor
+        command: Push an image
+        imageName: $(Image_name)
+    - task: Docker@0
+      displayName: Run a Docker command
+      inputs:
+        containerregistrytype: Container Registry
+        dockerRegistryConnection: Harbor
+        action: Run a Docker command
+        customCommand: rmi $(Deployment_containers_image)
+- stage: deployDesenvolvimento
+  displayName: Deploy para ambiente de desenvolvimento
+  dependsOn:
+  - build
+  variables:
+  - group: APM.ArqNET4.API-K8s-Des
+  jobs:
+  - deployment: ''
+    pool:
+      name: Empresa
+    environment:
+      name: apm_net-desenvolvimento
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: PowerShell@2
+            displayName: Download Templates Kubernetes
+            inputs:
+              targetType: inline
+              script: >
+                New-Item -Path "$(System.DefaultWorkingDirectory)" -Name "K8sTempl" -ItemType "directory" -Force
+                Invoke-WebRequest -Uri '$(DeploymentWeb_template)' -OutFile $(System.DefaultWorkingDirectory)/K8sTempl/Deployment.yaml -UseDefaultCredentials
+                Invoke-WebRequest -Uri '$(IngressComTls_template)' -OutFile $(System.DefaultWorkingDirectory)/K8sTempl/Ingress.yaml -UseDefaultCredentials
+                Invoke-WebRequest -Uri '$(Service_template)' -OutFile $(System.DefaultWorkingDirectory)/K8sTempl/Service.yaml -UseDefaultCredentials
+          - task: qetza.replacetokens.replacetokens-task.replacetokens@3
+            displayName: Replace tokens in **/*.yaml
+            inputs:
+              rootDirectory: $(System.DefaultWorkingDirectory)/K8sTempl
+              targetFiles: '**/*.yaml'
+          - task: KubectlInstaller@0
+            displayName: Instala Kubectl
+          - task: DownloadSecureFile@1
+            name: kubeconfig
+            displayName: Download do Kubeconfig
+            inputs:
+              secureFile: Kubeconfig_kilpro7201_apmnet-des_admin-svac
+          - task: PRAtualizaArquivosConfig@2
+            displayName: Cria secret com arquivos de configuração
+            inputs:
+              Kubeconfig: $(kubeconfig.secureFilePath)
+              Namespace: $(Namespace)
+              Resource: Secret
+              Name: $(Deployment_secretName)
+              CaminhoArquivos: $(Pipeline.Workspace)/ConfigApi
+              Arquivos: appsettings.json,appsettings.$(Ambiente).json
+          - task: PRKubectlApply@2
+            displayName: 'PRKubectlApply: Deployment, Service e Ingress'
+            inputs:
+              Kubeconfig: $(kubeconfig.secureFilePath)
+              CaminhoArquivos: $(System.DefaultWorkingDirectory)/K8sTempl
+              Arquivos: Deployment.yaml,Service.yaml,Ingress.yaml
+- stage: deployProducao
+  displayName: Deploy para ambiente de produção
+  dependsOn:
+  - deployDesenvolvimento
+  variables:
+  - group: APM.ArqNET4.API-K8s-Pro
+  jobs:
+  - deployment: ''
+    pool:
+      name: Empresa
+    environment:
+      name: apm_net-producao
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: PowerShell@2
+            displayName: Download Templates Kubernetes
+            inputs:
+              targetType: inline
+              script: >
+                New-Item -Path "$(System.DefaultWorkingDirectory)" -Name "K8sTempl" -ItemType "directory" -Force
+                Invoke-WebRequest -Uri '$(DeploymentWeb_template)' -OutFile $(System.DefaultWorkingDirectory)/K8sTempl/Deployment.yaml -UseDefaultCredentials
+                Invoke-WebRequest -Uri '$(IngressComTls_template)' -OutFile $(System.DefaultWorkingDirectory)/K8sTempl/Ingress.yaml -UseDefaultCredentials
+                Invoke-WebRequest -Uri '$(Service_template)' -OutFile $(System.DefaultWorkingDirectory)/K8sTempl/Service.yaml -UseDefaultCredentials
+          - task: qetza.replacetokens.replacetokens-task.replacetokens@3
+            displayName: Replace tokens in **/*.yaml
+            inputs:
+              rootDirectory: $(System.DefaultWorkingDirectory)/K8sTempl
+              targetFiles: '**/*.yaml'
+          - task: KubectlInstaller@0
+            displayName: Instala Kubectl
+          - task: DownloadSecureFile@1
+            name: kubeconfig
+            displayName: Download do Kubeconfig
+            inputs:
+              secureFile: Kubeconfig_kilpro7201_apmnet-pro_admin-svac
+          - task: PRAtualizaArquivosConfig@2
+            displayName: Cria secret com arquivos de configuração
+            inputs:
+              Kubeconfig: $(kubeconfig.secureFilePath)
+              Namespace: $(Namespace)
+              Resource: Secret
+              Name: $(Deployment_secretName)
+              CaminhoArquivos: $(Pipeline.Workspace)/ConfigApi
+              Arquivos: appsettings.json,appsettings.$(Ambiente).json
+          - task: PRKubectlApply@2
+            displayName: 'PRKubectlApply: Deployment, Service e Ingress'
+            inputs:
+              Kubeconfig: $(kubeconfig.secureFilePath)
+              CaminhoArquivos: $(System.DefaultWorkingDirectory)/K8sTempl
+              Arquivos: Deployment.yaml,Service.yaml,Ingress.yaml
+
