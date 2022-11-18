@@ -1,0 +1,63 @@
+pipeline {
+    agent { label 'docker' }
+    tools {
+        maven 'Maven 3.3.9'
+        jdk 'openjdk-11'
+    }
+    environment {
+        DEPLOY_TEMPLATE_CONFIG = 'kubernetes/template-apm-java-api-deployments.yaml'
+        DEPLOY_GENERATED_CONFIG = 'kubernetes/apm-java-api-deployments.yaml'
+        PROJECT_NAME = "APM-JAVA-API"
+    }
+    parameters {
+        choice(name: 'AMBIENTE', choices: ['des', 'tes', 'tef', 'hml', 'tre', 'pro'], description: 'Ambiente do deploy')
+        string(name: 'APM_DATABASE_HOST', description: 'Host do Banco de Dados')
+        string(name: 'APM_DATABASE_NAME', description: 'Nome do Banco de Dados')
+        string(name: 'APM_DATABASE_PASSWORD', description: 'Senha do Banco de Dados')
+        string(name: 'APM_DATABASE_PORT', description: 'Porta do Banco de Dados')
+        string(name: 'APM_DATABASE_USERNAME', description: 'Usuário do Banco de Dados')
+        string(name: 'INGRESS_HOST_API', description: 'Host Ingress')
+        string(name: 'NAMESPACE_IMAGEM', defaultValue: 'apmjava', description: 'Namespace da imagem no Harbor')
+        string(name: 'NAMESPACE_DEPLOY', defaultValue: 'apm-des', description: 'Namespace de deploy no Kubernetes')
+        string(name: 'VERSAO', defaultValue: 'latest', description: 'Versão da imagem')
+    }
+    stages {
+        stage("Liquibase Update") {
+            steps {
+                script {
+                    FAILED_STAGE = STAGE_NAME
+                    sh "mvn liquibase:update -Dliquibase.contextName=${params.AMBIENTE} -Pliquibase-update"
+                }
+            }
+        }
+
+        stage('Prepare Environment for Deployment') {
+            steps {
+                script {
+									FAILED_STAGE = STAGE_NAME
+									sh "sed -e s/%AMBIENTE%/${params.AMBIENTE}/g \
+									-e s/%NAMESPACE_DEPLOY%/${params.NAMESPACE_DEPLOY}/g \
+									-e s/%NAMESPACE_IMAGEM%/${params.NAMESPACE_IMAGEM}/g \
+									-e s/%APM_DATABASE_HOST%/${params.APM_DATABASE_HOST}/g \
+									-e 's/%APM_DATABASE_PORT%/\"${params.APM_DATABASE_PORT}\"/g' \
+									-e s/%APM_DATABASE_NAME%/${params.APM_DATABASE_NAME}/g \
+									-e s/%APM_DATABASE_USERNAME%/${params.APM_DATABASE_USERNAME}/g \
+									-e s/%APM_DATABASE_PASSWORD%/${params.APM_DATABASE_PASSWORD}/g \
+									-e s/%INGRESS_HOST_API%/${params.INGRESS_HOST_API}/g \
+									-e s/%VERSAO%/${params.VERSAO}/g \
+									${DEPLOY_TEMPLATE_CONFIG} > ${DEPLOY_GENERATED_CONFIG}"
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    FAILED_STAGE = STAGE_NAME
+                    kubernetesDeploy kubeconfigId: 'k8s-kilpro7200', configs: DEPLOY_GENERATED_CONFIG
+                }
+            }
+        }
+    }
+}
+
