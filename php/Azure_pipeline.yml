@@ -1,0 +1,62 @@
+# Exemplo de pipeline baseado na Aplicação Modelo(APM) PHP
+trigger:
+  enabled: false
+pool:
+  name: RHEL Docker
+variables:
+- name: Image_version
+- name: Image_name
+  value: apmphp/api:$(Image_version)
+- name: Deployment_containers_image
+  value: harbor001.pro.intra.rs.gov.br/$(Image_name)
+- group: ComumSetor
+- group: Kubernetes_templates
+
+resources:
+  repositories:
+  - repository: self
+    type: git
+    name: DIF.SDO/APM.PHP
+
+stages:
+- stage: __default
+  jobs:
+  - job: Job
+    pool:
+      name: RHEL Docker
+    workspace:
+      clean: all
+    steps:
+    - task: 6d15af64-176c-496d-b583-fd2ae21d4df4@1
+      displayName: clone
+      inputs:
+        repository: self
+        clean: true
+    - task: CopyFiles@2
+      displayName: Copia fontes para build da imagem
+      inputs:
+        SourceFolder: Fontes/
+        TargetFolder: $(Build.ArtifactStagingDirectory)
+    - task: Docker@1
+      displayName: Build an image
+      inputs:
+        containerregistrytype: Container Registry
+        dockerRegistryEndpoint: Harbor
+        command: Build an image
+        dockerFile: $(Build.ArtifactStagingDirectory)/Dockerfile
+        arguments: --build-arg NugetAzureArtifactsUrl=$(NugetAzureArtifactsUrl) --build-arg NugetAzureArtifactsPatToken=$(NugetAzureArtifactsPatToken)
+        imageName: $(Image_name)
+    - task: Docker@1
+      displayName: Push an image
+      inputs:
+        containerregistrytype: Container Registry
+        dockerRegistryEndpoint: Harbor
+        command: Push an image
+        imageName: $(IMAGE_NAME)
+    - task: Docker@0
+      displayName: Run a Docker command
+      inputs:
+        containerregistrytype: Container Registry
+        dockerRegistryConnection: Harbor
+        action: Run a Docker command
+        customCommand: rmi $(Deployment_containers_image)
