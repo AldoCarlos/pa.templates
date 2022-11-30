@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    ambiente: #{Ambiente}#
+    cliente: #{Namespace_cliente}#
+    sistema: #{Namespace_sistema}#
+  name: #{Namespace}#
