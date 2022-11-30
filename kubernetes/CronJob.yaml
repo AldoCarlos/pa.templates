@@ -1,0 +1,35 @@
+kind: CronJob
+apiVersion: batch/v1beta1
+metadata:
+  name: #{Cronjob_name}#
+  namespace: #{Namespace}#
+  labels:
+    name: #{Cronjob_name}#
+spec:
+  schedule: '#{Cronjob_schedule}#'
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: #{Cronjob_name}#
+            image: #{Cronjob_image}#
+            env:
+            - name: DOTNET_ENVIRONMENT
+              value: '#{Ambiente}#'
+            volumeMounts:
+            - name: configvolume
+              mountPath: '/config'
+              readOnly: true
+            resources: 
+                limits:
+                  cpu: #{Cronjob_limits_cpu}#
+                  memory: #{Cronjob_limits_memory}#
+                requests:
+                  cpu: #{Cronjob_requests_cpu}#
+                  memory: #{Cronjob_requests_memory}#              
+          volumes:
+          - name: configvolume
+            secret:
+              secretName: #{Cronjob_secretName}#
+          restartPolicy: OnFailure

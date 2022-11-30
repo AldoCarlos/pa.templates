@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: #{ResourceQuotas_name}#
+  namespace: #{Namespace}#
+spec:
+  hard:
+    limits.cpu: #{ResourceQuotas_limits_cpu}#
+    limits.memory: #{ResourceQuotas_limits_memory}#
+    requests.cpu: #{ResourceQuotas_requests_cpu}#
+    requests.memory: #{ResourceQuotas_requests_memory}#
