@@ -51,7 +51,7 @@ pipeline {
             steps {
                 script {
                     FAILED_STAGE = STAGE_NAME
-                    withSonarQubeEnv('sonar_procergs') {
+                    withSonarQubeEnv('sonar_empresa') {
                         def pom = readMavenPom file: 'pom.xml'
                         def projectName = getSonarProjectName(pom.artifactId)
                         def projectKey = "${pom.groupId}:${projectName}"

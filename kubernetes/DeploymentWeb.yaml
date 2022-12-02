@@ -24,7 +24,7 @@ spec:
           value: '#{Ambiente}#'
         volumeMounts:
         - name: configvolume
-          mountPath: '/config'
+          mountPath: '#{Deployment_volumeMountPath}#'
           readOnly: true
         resources: 
             limits:
